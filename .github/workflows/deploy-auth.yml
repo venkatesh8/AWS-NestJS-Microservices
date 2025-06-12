@@ -20,7 +20,7 @@ jobs:
       IMAGE_URL: <your-ecr-repo-uri>:latest
       ENV_NAME: dev
       CONTAINER_PORT: 3000
-      REGION: us-east-1
+      AWS_REGION: us-east-1
 
     steps:
       - name: Checkout repo
