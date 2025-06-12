@@ -53,8 +53,8 @@ jobs:
             --stack-name payment-ms-stack \
             --capabilities CAPABILITY_NAMED_IAM \
             --parameter-overrides EnvName=dev ImageUrl=${{ secrets.PAYMENT_MS_IMAGE_URL }} DBUsername=${{ secrets.PAYMENT_DB_USERNAME }} DBPassword=${{ secrets.PAYMENT_DB_PASSWORD }} StripeSecretKey=${{ secrets.STRIPE_SECRET_KEY }}
-_PORT: 3000
-      REGION: us-east-1
+            -PORT: 3000
+    REGION: us-east-1
 
     steps:
       - name: Checkout repo
