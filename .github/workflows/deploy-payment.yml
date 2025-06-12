@@ -1,0 +1,34 @@
+name: Deploy payment-ms to AWS
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'services/payment-ms/**'
+      - '.github/workflows/deploy-payment.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ap-south-1
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+
+      - name: Deploy CloudFormation stack for payment-ms
+        run: |
+          aws cloudformation deploy \
+            --template-file infra/payment-ms.cloudformation.yml \
+            --stack-name payment-ms-stack \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameter-overrides EnvName=dev ImageUrl=${{ secrets.PAYMENT_MS_IMAGE_URL }} DBUsername=${{ secrets.PAYMENT_DB_USERNAME }} DBPassword=${{ secrets.PAYMENT_DB_PASSWORD }} StripeSecretKey=${{ secrets.STRIPE_SECRET_KEY }}

@@ -1,0 +1,80 @@
+name: Deploy Auth Microservice to AWS
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'infra/auth-ms.cloudformation.yml'
+      - 'apps/auth-ms/**'
+      - '.github/workflows/deploy-auth.yml'
+
+jobs:
+  deploy:
+    name: Deploy auth-ms to AWS via CloudFormation
+    runs-on: ubuntu-latest
+
+    env:
+      STACK_NAME: auth-ms-stack
+      TEMPLATE_FILE: infra/auth-ms-cloudformation.yml
+      IMAGE_URL: <your-ecr-repo-uri>:latest
+      ENV_NAME: dev
+      CONTAINERname: Deploy payment-ms to AWS
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'services/payment-ms/**'
+      - '.github/workflows/deploy-payment.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ap-south-1
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+
+      - name: Deploy CloudFormation stack for payment-ms
+        run: |
+          aws cloudformation deploy \
+            --template-file infra/payment-ms.cloudformation.yml \
+            --stack-name payment-ms-stack \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameter-overrides EnvName=dev ImageUrl=${{ secrets.PAYMENT_MS_IMAGE_URL }} DBUsername=${{ secrets.PAYMENT_DB_USERNAME }} DBPassword=${{ secrets.PAYMENT_DB_PASSWORD }} StripeSecretKey=${{ secrets.STRIPE_SECRET_KEY }}
+_PORT: 3000
+      REGION: us-east-1
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          region: ${{ env.REGION }}
+
+      - name: Deploy with CloudFormation
+        run: |
+          aws cloudformation deploy \
+            --stack-name $STACK_NAME \
+            --template-file $TEMPLATE_FILE \
+            --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+            --parameter-overrides \
+              EnvName=${ENV_NAME} \
+              ImageUrl=${IMAGE_URL} \
+              ContainerPort=${CONTAINER_PORT}

@@ -1,0 +1,166 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template for payment-ms service on ECS with API Gateway and RDS (Free Tier)
+
+Parameters:
+  EnvName:
+    Type: String
+    Default: dev
+  ImageUrl:
+    Type: String
+    Description: Docker image URI for payment-ms
+  DBUsername:
+    Type: String
+    Default: paymentadmin
+  DBPassword:
+    Type: String
+    NoEcho: true
+
+Resources:
+
+  # IAM Role for ECS Task
+  PaymentTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub payment-ms-execution-role-${EnvName}
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  # CloudWatch Log Group
+  PaymentLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /ecs/payment-ms-${EnvName}
+      RetentionInDays: 7
+
+  # ECS Cluster
+  PaymentEcsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub payment-ms-cluster-${EnvName}
+
+  # RDS PostgreSQL Instance
+  PaymentDBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBName: paymentdb
+      AllocatedStorage: 20
+      DBInstanceClass: db.t3.micro
+      Engine: postgres
+      EngineVersion: 15.3
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      PubliclyAccessible: true
+      StorageType: gp2
+      BackupRetentionPeriod: 1
+      MultiAZ: false
+
+  # Task Definition
+  PaymentTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub payment-ms-task-${EnvName}
+      RequiresCompatibilities: [FARGATE]
+      Cpu: '256'
+      Memory: '512'
+      NetworkMode: awsvpc
+      ExecutionRoleArn: !GetAtt PaymentTaskExecutionRole.Arn
+      ContainerDefinitions:
+        - Name: payment-ms
+          Image: !Ref ImageUrl
+          Essential: true
+          PortMappings:
+            - ContainerPort: 3000
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref PaymentLogGroup
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: payment-ms
+
+  # Security Group
+  PaymentServiceSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP access
+      VpcId: vpc-xxxxxxxx  # Replace with your default VPC ID
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: 0.0.0.0/0
+
+  # ECS Service
+  PaymentService:
+    Type: AWS::ECS::Service
+    DependsOn: PaymentListenerRule
+    Properties:
+      Cluster: !Ref PaymentEcsCluster
+      LaunchType: FARGATE
+      DesiredCount: 1
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets: [subnet-xxxxxxx]  # Replace with public subnet ID
+          SecurityGroups: [!Ref PaymentServiceSG]
+      TaskDefinition: !Ref PaymentTaskDefinition
+      LoadBalancers:
+        - ContainerName: payment-ms
+          ContainerPort: 3000
+          TargetGroupArn: !Ref PaymentTargetGroup
+
+  # Application Load Balancer
+  PaymentLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub payment-ms-alb-${EnvName}
+      Subnets: [subnet-xxxxxxx]  # Replace with public subnet IDs
+      SecurityGroups: [!Ref PaymentServiceSG]
+      Scheme: internet-facing
+      Type: application
+
+  PaymentTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub payment-ms-tg-${EnvName}
+      Port: 3000
+      Protocol: HTTP
+      VpcId: vpc-xxxxxxxx  # Replace with your VPC ID
+      TargetType: ip
+      HealthCheckPath: /
+
+  PaymentListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref PaymentLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: fixed-response
+          FixedResponseConfig:
+            StatusCode: 404
+            ContentType: text/plain
+            MessageBody: 'Not Found'
+
+  PaymentListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref PaymentListener
+      Priority: 1
+      Conditions:
+        - Field: path-pattern
+          Values: ['/payment']
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref PaymentTargetGroup
+
+Outputs:
+  PaymentServiceUrl:
+    Description: "Public URL for payment-ms"
+    Value: !Join ["", ["http://", !GetAtt PaymentLoadBalancer.DNSName, "/payment"]]
