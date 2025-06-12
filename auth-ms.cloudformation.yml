@@ -1,0 +1,137 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template for Auth Microservice (auth-ms) on ECS Fargate with API Gateway, ALB, IAM roles, and CloudWatch (AWS Free Tier).
+
+Parameters:
+  EnvName:
+    Type: String
+    Default: dev
+  ImageUrl:
+    Type: String
+  ContainerPort:
+    Type: Number
+    Default: 3000
+
+Resources:
+
+  AuthLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/auth-ms-${EnvName}"
+      RetentionInDays: 7
+
+  AuthTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub auth-ms-execution-role-${EnvName}
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  AuthTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub auth-ms-task-${EnvName}
+      Cpu: 256
+      Memory: 512
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !GetAtt AuthTaskExecutionRole.Arn
+      ContainerDefinitions:
+        - Name: auth-container
+          Image: !Ref ImageUrl
+          PortMappings:
+            - ContainerPort: !Ref ContainerPort
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref AuthLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: auth
+
+  AuthCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub auth-ms-cluster-${EnvName}
+
+  AuthServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable HTTP access
+      VpcId: vpc-xxxxxxxx
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  AuthALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub auth-ms-alb-${EnvName}
+      Scheme: internet-facing
+      Subnets:
+        - subnet-xxxxxxxx
+        - subnet-yyyyyyyy
+      SecurityGroups:
+        - !Ref AuthServiceSecurityGroup
+
+  AuthTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub auth-ms-tg-${EnvName}
+      Port: 80
+      Protocol: HTTP
+      TargetType: ip
+      VpcId: vpc-xxxxxxxx
+
+  AuthListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref AuthALB
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref AuthTargetGroup
+
+  AuthService:
+    Type: AWS::ECS::Service
+    DependsOn: AuthListener
+    Properties:
+      Cluster: !Ref AuthCluster
+      LaunchType: FARGATE
+      DesiredCount: 1
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets:
+            - subnet-xxxxxxxx
+            - subnet-yyyyyyyy
+          SecurityGroups:
+            - !Ref AuthServiceSecurityGroup
+      TaskDefinition: !Ref AuthTaskDefinition
+      LoadBalancers:
+        - ContainerName: auth-container
+          ContainerPort: !Ref ContainerPort
+          TargetGroupArn: !Ref AuthTargetGroup
+
+  AuthAPIGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub auth-ms-api-${EnvName}
+
+Outputs:
+  ALBDNS:
+    Description: DNS of the Application Load Balancer
+    Value: !GetAtt AuthALB.DNSName
+  ClusterName:
+    Value: !Ref AuthCluster
+  APIGatewayId:
+    Value: !Ref AuthAPIGateway
