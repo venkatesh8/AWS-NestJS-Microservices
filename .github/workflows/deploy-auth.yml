@@ -21,14 +21,6 @@ jobs:
       ENV_NAME: dev
       CONTAINERname: Deploy payment-ms to AWS
 
-on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'services/payment-ms/**'
-      - '.github/workflows/deploy-payment.yml'
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
