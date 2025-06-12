@@ -31,7 +31,7 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ secrets.AWS_REGION }} 
 
-      - name: Deploy CloudFormation stack
+      - name: Deploy CloudFormation auth stack
         run: |
           aws cloudformation deploy \
             --stack-name $STACK_NAME \
