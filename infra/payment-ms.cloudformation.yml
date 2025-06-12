@@ -89,7 +89,7 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Allow HTTP access
-      VpcId: vpc-xxxxxxxx  # Replace with your default VPC ID
+      VpcId: vpc-040e3f87fa9258028  # Replace with your default VPC ID
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 3000
@@ -107,7 +107,8 @@ Resources:
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: ENABLED
-          Subnets: [subnet-xxxxxxx]  # Replace with public subnet ID
+          Subnets: 
+            - subnet-05efa3160df75dc32
           SecurityGroups: [!Ref PaymentServiceSG]
       TaskDefinition: !Ref PaymentTaskDefinition
       LoadBalancers:
@@ -120,7 +121,7 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
       Name: !Sub payment-ms-alb-${EnvName}
-      Subnets: [subnet-xxxxxxx]  # Replace with public subnet IDs
+      Subnets: [subnet-05efa3160df75dc32, subnet-0b687f3f5962dd07b]  # Replace with public subnet IDs
       SecurityGroups: [!Ref PaymentServiceSG]
       Scheme: internet-facing
       Type: application
@@ -131,7 +132,7 @@ Resources:
       Name: !Sub payment-ms-tg-${EnvName}
       Port: 3000
       Protocol: HTTP
-      VpcId: vpc-xxxxxxxx  # Replace with your VPC ID
+      VpcId: vpc-040e3f87fa9258028  # Replace with your VPC ID
       TargetType: ip
       HealthCheckPath: /
 
