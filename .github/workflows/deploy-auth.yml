@@ -41,4 +41,4 @@ jobs:
             --parameter-overrides \
               EnvName=dev \
               ImageUrl=${{ env.IMAGE_URL }} \
-              ContainerPort=3000
+              ContainerPort=3001
