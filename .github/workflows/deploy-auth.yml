@@ -21,8 +21,6 @@ jobs:
       ENV_NAME: dev
       CONTAINERname: Deploy payment-ms to AWS
 
-    REGION: us-east-1
-
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
