@@ -16,10 +16,11 @@ jobs:
 
     env:
       STACK_NAME: auth-ms-stack
-      TEMPLATE_FILE: infra/auth-ms-cloudformation.yml
+      TEMPLATE_FILE: infra/auth-ms.cloudformation.yml
       IMAGE_URL: <your-ecr-repo-uri>:latest
       ENV_NAME: dev
-      CONTAINERname: Deploy payment-ms to AWS
+      CONTAINER_PORT: 3000
+      REGION: us-east-1
 
     steps:
       - name: Checkout repo
