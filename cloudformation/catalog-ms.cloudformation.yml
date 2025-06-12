@@ -1,0 +1,250 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Full infrastructure for catalog-ms including ECS, ALB, API Gateway, RDS, IAM, and CloudWatch
+
+Parameters:
+  EnvName:
+    Type: String
+    Default: "prod"
+  ImageUrl:
+    Type: String
+    Description: ECR Image URL for catalog-ms
+
+Resources:
+
+  ### --- VPC --- ###
+  CatalogVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: catalog-vpc
+
+  CatalogInternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  CatalogAttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref CatalogVpc
+      InternetGatewayId: !Ref CatalogInternetGateway
+
+  CatalogSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref CatalogVpc
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs '']
+
+  CatalogRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref CatalogVpc
+
+  CatalogRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref CatalogRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref CatalogInternetGateway
+
+  CatalogSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref CatalogSubnet
+      RouteTableId: !Ref CatalogRouteTable
+
+  ### --- IAM Roles --- ###
+  CatalogTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  CatalogTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CatalogAppPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:*
+                Resource: '*'
+
+  ### --- ECS Cluster --- ###
+  CatalogCluster:
+    Type: AWS::ECS::Cluster
+
+  ### --- Log Group --- ###
+  CatalogLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/catalog-ms
+      RetentionInDays: 7
+
+  ### --- RDS --- ###
+  CatalogDB:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceClass: db.t3.micro
+      AllocatedStorage: 20
+      Engine: postgres
+      EngineVersion: 15.3
+      MasterUsername: admin
+      MasterUserPassword: admin1234
+      DBName: catalog
+      PubliclyAccessible: true
+      VPCSecurityGroups: [] # Will update after SG
+
+  ### --- Security Group --- ###
+  CatalogSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Access to ECS and RDS
+      VpcId: !Ref CatalogVpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 0.0.0.0/0
+
+  ### --- ALB --- ###
+  CatalogLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: catalog-alb
+      Subnets:
+        - !Ref CatalogSubnet
+      SecurityGroups:
+        - !Ref CatalogSecurityGroup
+      Scheme: internet-facing
+      Type: application
+
+  CatalogTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref CatalogVpc
+      Port: 80
+      Protocol: HTTP
+      TargetType: ip
+
+  CatalogListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref CatalogLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref CatalogTargetGroup
+
+  ### --- Task Definition --- ###
+  CatalogTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      RequiresCompatibilities: [FARGATE]
+      Cpu: '256'
+      Memory: '512'
+      NetworkMode: awsvpc
+      ExecutionRoleArn: !GetAtt CatalogTaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt CatalogTaskRole.Arn
+      ContainerDefinitions:
+        - Name: catalog-container
+          Image: !Ref ImageUrl
+          PortMappings:
+            - ContainerPort: 80
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref CatalogLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: catalog
+          Environment:
+            - Name: DB_HOST
+              Value: !GetAtt CatalogDB.Endpoint.Address
+            - Name: DB_USER
+              Value: admin
+            - Name: DB_PASS
+              Value: admin1234
+            - Name: DB_NAME
+              Value: catalog
+            - Name: DB_PORT
+              Value: "5432"
+
+  ### --- ECS Service --- ###
+  CatalogService:
+    Type: AWS::ECS::Service
+    DependsOn: CatalogListener
+    Properties:
+      Cluster: !Ref CatalogCluster
+      LaunchType: FARGATE
+      DesiredCount: 1
+      TaskDefinition: !Ref CatalogTaskDefinition
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets:
+            - !Ref CatalogSubnet
+          SecurityGroups:
+            - !Ref CatalogSecurityGroup
+      LoadBalancers:
+        - ContainerName: catalog-container
+          ContainerPort: 80
+          TargetGroupArn: !Ref CatalogTargetGroup
+
+  ### --- API Gateway --- ###
+  CatalogRestApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: catalog-api
+
+  CatalogRootMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: ANY
+      ResourceId: !GetAtt CatalogRestApi.RootResourceId
+      RestApiId: !Ref CatalogRestApi
+      Integration:
+        Type: HTTP
+        IntegrationHttpMethod: ANY
+        Uri: !Sub "http://${CatalogLoadBalancer.DNSName}/"
+      MethodResponses:
+        - StatusCode: 200
+
+  CatalogApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: CatalogRootMethod
+    Properties:
+      RestApiId: !Ref CatalogRestApi
+      StageName: prod
+
+Outputs:
+  CatalogApiInvokeURL:
+    Value: !Sub "https://${CatalogRestApi}.execute-api.${AWS::Region}.amazonaws.com/prod"
+  CatalogALBDNS:
+    Value: !GetAtt CatalogLoadBalancer.DNSName
