@@ -53,7 +53,7 @@ Resources:
       AllocatedStorage: 20
       DBInstanceClass: db.t3.micro
       Engine: postgres
-      EngineVersion: 15.3
+      EngineVersion: 15.4
       MasterUsername: !Ref DBUsername
       MasterUserPassword: !Ref DBPassword
       PubliclyAccessible: true

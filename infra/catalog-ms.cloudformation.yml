@@ -109,7 +109,7 @@ Resources:
       DBInstanceClass: db.t3.micro
       AllocatedStorage: 20
       Engine: postgres
-      EngineVersion: 15.3
+      EngineVersion: 15.4
       MasterUsername: admin
       MasterUserPassword: admin1234
       DBName: catalog
